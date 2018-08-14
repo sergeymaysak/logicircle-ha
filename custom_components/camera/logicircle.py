@@ -5,6 +5,7 @@ Support for Logi Circle 2 Cameras.
 import asyncio
 import logging
 import weakref
+import time
 
 import aiohttp
 import async_timeout
@@ -94,24 +95,46 @@ class LogiCam:
     @property
     def still_image_url(self):
         """Url to get still image from camera."""
-        return 'https://{}/api/accessories/{}/image'.format(self.node_id, self.accessory_id)
+        js_timestamp = int(time.time() * 1000)
+        return 'https://{}/api/accessories/{}/image?anticache={}'.format(self.node_id,
+                                                                         self.accessory_id,
+                                                                         js_timestamp)
 
     @property
     def activities_url(self):
         """Url to get a list of activities videos."""
         return 'https://video.logi.com/api/accessories/{}/activities'.format(self.accessory_id)
 
+    @property
+    def accessory_info_url(self):
+        """Url to get info for accessory."""
+        return 'https://video.logi.com/api/accessories/{}'.format(self.accessory_id)
+
+    async def async_fetch_accessory_info(self):
+        """Fetch accessory info."""
+        if self._platform().needs_login:
+            await self._platform().async_login()
+
+        headers = {'content-type': 'application/json'}
+        async with self._platform().session.get(self.accessory_info_url,
+                                                headers=headers) as response:
+            if response.status < 400:
+                self._spec = await response.json()                
+
     async def async_fetch_image(self):
         """Fetch snapshort image in async fashion."""
         if self._platform().needs_login:
             await self._platform().async_login()
 
+        await self.async_fetch_accessory_info()
+
         headers = {'content-type': 'image/jpeg',
                    'Cache-Control': 'no-cache'}
+        _LOGGER.info('LOGICIRCLE: websession: {}'.format(self._platform().session))
         async with self._platform().session.get(self.still_image_url,
                                                 headers=headers) as response:
             image_data = await response.read()
-            _LOGGER.info("LOGICIRCLE: image_data arrived")
+            _LOGGER.info("LOGICIRCLE: status: {}".format(response.status))
             return image_data
 
     async def async_fetch_activities(self):
