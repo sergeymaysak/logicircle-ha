@@ -38,6 +38,7 @@ class LogiPlatform:
         self._email = email
         self._password = password
         self.session = websession
+        self._last_status = 401
 
     async def async_login(self):
         """Perform login using provided credentials."""
@@ -50,7 +51,8 @@ class LogiPlatform:
     @property
     def needs_login(self):
         """Identify if platform needs login/re-login."""
-        return len(self.session.cookie_jar.filter_cookies('https://video.logi.com')) == 0
+        return (len(self.session.cookie_jar.filter_cookies('https://video.logi.com')) == 0 or
+                self._last_status == 401)
 
     async def async_fetch_cameras(self):
         """Fetch camera snapshort image (jpeg encoded) in async fashion."""
@@ -68,6 +70,7 @@ class LogiPlatform:
     async def _fetch_json(self, url):
         """Fetch json from platform by specified url."""
         async with self.session.get(url, headers={'content-type': 'application/json'}) as response:
+            self._last_status = response.status
             return await response.json()
 
 class LogiCam:
@@ -118,6 +121,7 @@ class LogiCam:
         headers = {'content-type': 'application/json'}
         async with self._platform().session.get(self.accessory_info_url,
                                                 headers=headers) as response:
+            self._last_status = response.status
             if response.status < 400:
                 self._spec = await response.json()                
 
@@ -128,11 +132,14 @@ class LogiCam:
 
         await self.async_fetch_accessory_info()
 
+        if self._platform().needs_login:
+            await self._platform().async_login()
         headers = {'content-type': 'image/jpeg',
                    'Cache-Control': 'no-cache'}
         _LOGGER.info('LOGICIRCLE: websession: {}'.format(self._platform().session))
         async with self._platform().session.get(self.still_image_url,
                                                 headers=headers) as response:
+            self._last_status = response.status
             image_data = await response.read()
             _LOGGER.info("LOGICIRCLE: status: {}".format(response.status))
             return image_data
@@ -150,6 +157,7 @@ class LogiCam:
         async with self._platform().session.post(self.activities_url,
                                                  headers=headers, json=payload) as response:
             activities_response = await response.json()
+            self._last_status = response.status
             return activities_response['activities']
 
 
